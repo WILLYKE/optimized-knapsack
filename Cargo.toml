@@ -1,0 +1,92 @@
+/*!
+Licensed under the TIG Benchmarker Outbound Game License v1.0.
+*/
+
+use tig_challenges::knapsack::*;
+use rayon::prelude::*;
+
+pub fn solve_challenge(challenge: &Challenge) -> anyhow::Result<Option<Solution>> {
+    let max_weight = challenge.max_weight as usize;
+    let min_value = challenge.min_value as usize;
+    let num_items = challenge.difficulty.num_items;
+
+    let weights: Vec<usize> = challenge.weights.iter().map(|weight| *weight as usize).collect();
+    let values: Vec<usize> = challenge.values.iter().map(|value| *value as usize).collect();
+
+    let mut sorted_items: Vec<(usize, f64)> = (0..num_items)
+        .map(|i| (i, values[i] as f64 / weights[i] as f64))
+        .collect();
+    sorted_items.par_sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    let mut upper_bound = 0;
+    let mut remaining_weight = max_weight;
+    for &(item_index, ratio) in &sorted_items {
+        let item_weight = weights[item_index];
+        let item_value = values[item_index];
+
+        if item_weight <= remaining_weight {
+            upper_bound += item_value;
+            remaining_weight -= item_weight;
+        } else {
+            upper_bound += (ratio * remaining_weight as f64).floor() as usize;
+            break;
+        }
+    }
+
+    if upper_bound < min_value {
+        return Ok(None);
+    }
+
+    let mut dp = vec![0; max_weight + 1];
+
+    for i in 1..=num_items {
+        let (item_index, _) = sorted_items[i - 1];
+        let item_weight = weights[item_index];
+        let item_value = values[item_index];
+
+        for w in (item_weight..=max_weight).rev() {
+            dp[w] = dp[w].max(dp[w - item_weight] + item_value);
+        }
+    }
+
+    let mut items = Vec::with_capacity(num_items);
+    let mut w = max_weight;
+    let mut total_value = 0;
+    for i in (1..=num_items).rev() {
+        let (item_index, _) = sorted_items[i - 1];
+        let item_weight = weights[item_index];
+        let item_value = values[item_index];
+
+        if w >= item_weight && dp[w] == dp[w - item_weight] + item_value {
+            items.push(item_index);
+            w -= item_weight;
+            total_value += item_value;
+        }
+
+        if total_value >= min_value {
+            break;
+        }
+    }
+
+    if total_value >= min_value {
+        Ok(Some(Solution { items }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn main() {
+    let challenge = Challenge {
+        max_weight: 50,
+        min_value: 100,
+        difficulty: Difficulty { num_items: 10 },
+        weights: vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+        values: vec![60, 100, 120, 140, 160, 180, 200, 220, 240, 260],
+    };
+    
+    match solve_challenge(&challenge) {
+        Ok(Some(solution)) => println!("Solution: {:?}", solution),
+        Ok(None) => println!("No solution found that meets the minimum value."),
+        Err(e) => println!("Error: {:?}", e),
+    }
+}
